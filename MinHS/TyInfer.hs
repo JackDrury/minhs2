@@ -159,7 +159,9 @@ unify t1 t2 = typeError (TypeMismatch t1 t2)
 -- Generalise(Γ,τ)  =∀(TV(τ)\TV(Γ)). τ
 -- This can be implemented as ===================================================================
 generalise :: Gamma -> Type -> QType
-generalise g t = error "implement me"
+generalise g tau = foldl (\tau' x -> Forall x tau') (Ty tau) iter
+                         where iter = reverse (filter (\y -> not (y `elem` (tvGamma g))) (tv tau))
+
 
 
 
@@ -184,37 +186,93 @@ inferExp g (Num n) = return (Num n, Base Int, emptySubst)
 
 -- Next we handle variables, where (just like in assignment 1) we must look up
 -- the variable in our environment
-inferExp g (Var x) = if (E.lookup g x) == Just t
-                        then do unQt <- unqunatify t
-                                return (Var x, unQt, emptySubst)
-                        else typeError (NoSuchVariable x)
-
+inferExp g (Var x) = case (E.lookup g x) of Just t  -> do unQt <- unquantify t
+                                                          return (Var x, unQt, emptySubst)
+                                            _       -> typeError (NoSuchVariable x)
 
 -- Then we have to handle primitive operators which is simply
 -- using fresh variables for the quantified types:
 inferExp g (Prim o) = do unQt <- unquantify (PrimOpType o)
                          return (Prim o, unQt, emptySubst)
 
-                      
 
+-- Then handle the constructors which is very similar to the primops
+-- except we need to include an error condition
+inferExp g (Con c) = case (constType c) of Just t -> do unQt <- unquantify t
+                                                       return (Con c, unQt, emptySubst)
+                                           _      -> typeError (NosSuchConstructor c)
 
-
--- FROM THE LECTURE:
-
-inferExp :: Gamma -> Exp -> TC (Exp, Type, Subst)
+-- Next we handle application. We only need to slightly
+-- modify the example from the lectures by
+-- unpacking the unification from TC:
 inferExp g (App e1 e2) = do
   (e1', tau1, tee)  <- inferExp g e1
-  (es', tau2, tee') <- inferExp (substGamma tee g) e2
+  (e2', tau2, tee') <- inferExp (substGamma tee g) e2
   alpha             <- fresh
-  let lhs = substitute tee' tau1
-      rhs = Arrow tau2 alpha
-      u   = unify lhs rhs
-  in return (App e1' e2', substitute u alpha, u <> tee' <> tee)
-
--- Will need to be altered
+  let lhs            = substitute tee' tau1
+      rhs            = Arrow tau2 alpha
+  u                 <- unify lhs rhs
+  return (App e1' e2', substitute u alpha, u <> tee' <> tee)  
 
 
-inferExp g _ = error "Implement me!"
--- -- Note: this is the only case you need to handle for case expressions
--- inferExp g (Case e [Alt "Inl" [x] e1, Alt "Inr" [y] e2])
--- inferExp g (Case e _) = typeError MalformedAlternatives
+-- Next we handle If-Then-Else statements, which will have
+-- a similar structure to the application:
+inferExp g (If e e1 e2) = do
+  (e', tau, tee)    <- inferExp g e
+  u                 <- unify tau (Base Bool)
+  (e1', tau1, tee1) <- inferExp (substGamma (u <> tee) g) e1
+  (e2', tau2, tee2) <- inferExp (substGamma (tee1 <> u <> tee) g) e2
+  let lhs            = substitute tee2 tau1
+  u'                <- unify lhs tau2
+  return (If e' e1' e2', substitute u' tau2, u' <> tee2 <> tee1 <> u <> tee)
+
+
+-- Then we handle the only non-error-raising case statement:
+inferExp g (Case e [Alt "Inl" [x] e1, Alt "Inr" [y] e2]) = do
+  (e', tau, tee)    <- inferExp g e
+  alphaL            <- fresh
+  (e1', tauL, tee1) <- inferExp (substGamma tee (E.add g (x, Ty alphaL))) e1
+  alphaR            <- fresh
+  (e2', tauR, tee2) <- inferExp (substGamma (tee <> tee1) (E.add g (y, Ty alphaR))) e2
+  let lhs            = substitute (tee2 <> tee1 <> tee) (Sum alphaL alphaR)
+      rhs            = substitute (tee2 <> tee1) tau
+  u                 <- unify lhs rhs
+  let lhs'           = substitute (u <> tee2) tauL
+      rhs'           = substitute u tauR
+  u'                <- unify lhs' rhs'
+  let retTy          = substitute (u' <> u) tauR
+      retSub         = u' <> u <> tee2 <> tee1 <> tee
+  return (Case e' [Alt "Inl" [x] e1', Alt "Inr" [y] e2'], retTy, retSub)
+
+inferExp g (Case e _) = typeError MalformedAlternatives  
+
+-- Next up we need to handle the recfun statements:
+-- I am not sure that I have made the substitutions correctly ============================
+-- ============================= do we assume only a single argument x????????????????????
+-- ============================== Should we also consider no argument?
+-- How about different starting types?
+inferExp g (Recfun (Bind f _ [x] e)) = do
+  alpha1         <- fresh
+  alpha2         <- fresh
+  let g'          = E.addAll g [(x, Ty alpha1), (f, Ty alpha2)]
+  (e', tau, tee) <- inferExp g' e
+  let lhs         = substitute tee alpha2
+      rhs         = Arrow (substitute tee alpha1) tau
+  u              <- unify lhs rhs
+  let retTy       = substitute u (Arrow (substitute tee alpha1) tau)
+      retSub      = u <> tee
+  return (Recfun (Bind f (Just (return (generalise g' retTy))) [x] e',retTy, retSub)
+
+
+-- Finally we handle let expressions:
+inferExp g (Let [Bind x _ [] e1] e2) = do
+  (e1', tau, tee)  <- inferExp g e1
+  let g'            = E.add (substGamma tee g) (x, generalise (substGamma tee g) tau)
+  (e2', tau',tee') <- inferExp g' e2
+  return (Let [Bind x (Just (return (generalise g' tau))) [] e1'] e2', tau', tee' <> tee)
+
+
+inferExp g _ = error "Implement me! (You missed some cases, duh!)"
+
+
+
