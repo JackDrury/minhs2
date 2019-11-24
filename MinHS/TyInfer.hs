@@ -169,6 +169,7 @@ generalise g t = error "implement me"
 
 
 
+
 -- We now implement infer program
 inferProgram :: Gamma -> Program -> TC (Program, Type, Subst)
 inferProgram g [Bind str _ [] e] = do
@@ -196,7 +197,7 @@ inferExp g (Var x) = case (E.lookup g x) of Just t  -> do unQt <- unquantify t
 
 -- Then we have to handle primitive operators which is simply
 -- using fresh variables for the quantified types:
-inferExp g (Prim o) = do unQt <- unquantify (PrimOpType o)
+inferExp g (Prim o) = do unQt <- unquantify (primOpType o)
                          return (Prim o, unQt, emptySubst)
 
 
@@ -204,7 +205,7 @@ inferExp g (Prim o) = do unQt <- unquantify (PrimOpType o)
 -- except we need to include an error condition
 inferExp g (Con c) = case (constType c) of Just t -> do unQt <- unquantify t
                                                         return (Con c, unQt, emptySubst)
-                                           _      -> typeError (NosSuchConstructor c)
+                                           _      -> typeError (NoSuchConstructor c)
 
 -- Next we handle application. We only need to slightly
 -- modify the example from the lectures by
@@ -265,16 +266,16 @@ inferExp g (Recfun (Bind f _ [x] e)) = do
   u              <- unify lhs rhs
   let retTy       = substitute u (Arrow (substitute tee alpha1) tau)
       retSub      = u <> tee
-  return (Recfun (Bind f (Just (return (generalise g' retTy))) [x] e'),retTy, retSub)
-
+  return (Recfun (Bind f (Just ((generalise g' retTy))) [x] e'),retTy, retSub)
+--                             ^^dropped the return
 
 -- Finally we handle let expressions:
 inferExp g (Let [Bind x _ [] e1] e2) = do
   (e1', tau, tee)  <- inferExp g e1
   let g'            = E.add (substGamma tee g) (x, generalise (substGamma tee g) tau)
   (e2', tau',tee') <- inferExp g' e2
-  return (Let [Bind x (Just (return (generalise g' tau))) [] e1'] e2', tau', tee' <> tee)
-
+  return (Let [Bind x (Just ((generalise g' tau))) [] e1'] e2', tau', tee' <> tee)
+--                          ^^dropped the return
 
 inferExp g _ = error "Implement me! (You missed some cases, duh!)"
 
