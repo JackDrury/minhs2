@@ -157,6 +157,8 @@ unify t1 t2 = typeError (TypeMismatch t1 t2)
 
 -- From the spec, generalise is:
 -- Generalise(Γ,τ)  =∀(TV(τ)\TV(Γ)). τ
+-- Basically saying that we want to add foralls
+-- to the type variables that are not mentioned in gamma
 -- This can be implemented as:
 generalise :: Gamma -> Type -> QType
 generalise g tau = foldl (\tau' x -> Forall x tau') (Ty tau) iter
@@ -256,6 +258,21 @@ inferExp g (Case e _) = typeError MalformedAlternatives
 -- ============================= do we assume only a single argument x????????????????????
 -- ============================== Should we also consider no argument?
 -- How about different starting types?
+
+
+inferExp g (Recfun (Bind f _ [x] e)) = do
+  alpha1         <- fresh
+  alpha2         <- fresh
+  let g'          = E.addAll g [(x, Ty alpha1), (f, Ty alpha2)]
+  (e', tau, tee) <- inferExp g' e
+  let lhs         = substitute tee alpha2
+      rhs         = Arrow (substitute tee alpha1) tau
+  u              <- unify lhs rhs
+  let retTy       = substitute u (Arrow (substitute tee alpha1) tau)
+      retSub      = u <> tee
+  return (Recfun (Bind f (Just ((Ty retTy))) [x] e'),retTy, retSub)
+
+{-
 inferExp g (Recfun (Bind f _ [x] e)) = do
   alpha1         <- fresh
   alpha2         <- fresh
@@ -268,7 +285,7 @@ inferExp g (Recfun (Bind f _ [x] e)) = do
       retSub      = u <> tee
   return (Recfun (Bind f (Just ((generalise g' retTy))) [x] e'),retTy, retSub)
 --                             ^^dropped the return here, made the types match properly!
-
+-}
 -- Finally we handle let expressions:
 inferExp g (Let [Bind x _ [] e1] e2) = do
   (e1', tau, tee)  <- inferExp g e1
