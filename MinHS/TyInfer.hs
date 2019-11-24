@@ -203,7 +203,7 @@ inferExp g (Prim o) = do unQt <- unquantify (PrimOpType o)
 -- Then handle the constructors which is very similar to the primops
 -- except we need to include an error condition
 inferExp g (Con c) = case (constType c) of Just t -> do unQt <- unquantify t
-                                                       return (Con c, unQt, emptySubst)
+                                                        return (Con c, unQt, emptySubst)
                                            _      -> typeError (NosSuchConstructor c)
 
 -- Next we handle application. We only need to slightly
