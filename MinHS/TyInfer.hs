@@ -136,14 +136,14 @@ unify (Arrow t11 t12) (Arrow t21 t22)   = do s1 <- (unify           t11         
 -- Now we have the case that only one of the arguments is a type variable and
 -- the other is any type term. We need to fail if the variable occurs in the term
 -- Because then we would get stuck in an infinitely expanding unification:
-unify (Type t) (TypeVar var)    = if var `elem` (tv t)
-                                     then typeError (OccursCheckFailed var t)
-                                     else return (var =: t)
+unify t (TypeVar var)    = if var `elem` (tv t)
+                              then typeError (OccursCheckFailed var t)
+                              else return (var =: t)
 
 -- Then repeat for the position of typevar and type swapped:
-unify (TypeVar var) (Type t)    = if var `elem` (tv t)
-                                     then typeError (OccursCheckFailed var t)
-                                     else return (var =: t)
+unify (TypeVar var) t    = if var `elem` (tv t)
+                              then typeError (OccursCheckFailed var t)
+                              else return (var =: t)
 
 --If none of these cases work then we cannot unify the two types:
 unify t1 t2 = typeError (TypeMismatch t1 t2)
