@@ -157,22 +157,26 @@ unify t1 t2 = typeError (TypeMismatch t1 t2)
 
 -- From the spec, generalise is:
 -- Generalise(Γ,τ)  =∀(TV(τ)\TV(Γ)). τ
--- This can be implemented as ===================================================================
+-- This can be implemented as:
 generalise :: Gamma -> Type -> QType
 generalise g tau = foldl (\tau' x -> Forall x tau') (Ty tau) iter
                          where iter = reverse (filter (\y -> not (y `elem` (tvGamma g))) (tv tau))
 
+generalise g t = error "implement me"
 
 
 
 
 
 
--- ==============================================================================================
+-- We now implement infer program
 inferProgram :: Gamma -> Program -> TC (Program, Type, Subst)
-inferProgram env bs = error "implement me! don't forget to run the result substitution on the"
-                            "entire expression using allTypes from Syntax.hs"
-
+inferProgram g [bind str _ [] e] = do
+  (e', tau, tee) <- inferExp g e
+  let retExp      = allTypes (substQType tee) e'
+      retTy       = Just (generalise g tau)
+  return ([Bind str retTy [] retExp], tau, tee)
+inferProgram _ _ = error "Somehow you couldn't pattern match inferProgram"
 
 
 
