@@ -130,8 +130,8 @@ unify (Prod t11 t12) (Prod t21 t22)   = do s1 <- (unify           t11           
 
 -- And again for function types:
 unify (Arrow t11 t12) (Arrow t21 t22)   = do s1 <- (unify           t11             t21)
-                                         s2 <- (unify (substitute s1 t12) (substitute s1 t22))
-                                         return (s1 <> s2)
+                                             s2 <- (unify (substitute s1 t12) (substitute s1 t22))
+                                             return (s1 <> s2)
 
 -- Now we have the case that only one of the arguments is a type variable and
 -- the other is any type term. We need to fail if the variable occurs in the term
