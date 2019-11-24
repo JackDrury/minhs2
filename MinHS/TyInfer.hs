@@ -265,7 +265,7 @@ inferExp g (Recfun (Bind f _ [x] e)) = do
   u              <- unify lhs rhs
   let retTy       = substitute u (Arrow (substitute tee alpha1) tau)
       retSub      = u <> tee
-  return (Recfun (Bind f (Just (return (generalise g' retTy))) [x] e',retTy, retSub)
+  return (Recfun (Bind f (Just (return (generalise g' retTy))) [x] e'),retTy, retSub)
 
 
 -- Finally we handle let expressions:
