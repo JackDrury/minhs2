@@ -171,7 +171,7 @@ generalise g t = error "implement me"
 
 -- We now implement infer program
 inferProgram :: Gamma -> Program -> TC (Program, Type, Subst)
-inferProgram g [bind str _ [] e] = do
+inferProgram g [Bind str _ [] e] = do
   (e', tau, tee) <- inferExp g e
   let retExp      = allTypes (substQType tee) e'
       retTy       = Just (generalise g tau)
