@@ -162,7 +162,7 @@ generalise :: Gamma -> Type -> QType
 generalise g tau = foldl (\tau' x -> Forall x tau') (Ty tau) iter
                          where iter = reverse (filter (\y -> not (y `elem` (tvGamma g))) (tv tau))
 
-generalise g t = error "implement me"
+--generalise g t = error "implement me"
 
 
 
@@ -267,7 +267,7 @@ inferExp g (Recfun (Bind f _ [x] e)) = do
   let retTy       = substitute u (Arrow (substitute tee alpha1) tau)
       retSub      = u <> tee
   return (Recfun (Bind f (Just ((generalise g' retTy))) [x] e'),retTy, retSub)
---                             ^^dropped the return
+--                             ^^dropped the return here, made the types match properly!
 
 -- Finally we handle let expressions:
 inferExp g (Let [Bind x _ [] e1] e2) = do
@@ -275,7 +275,7 @@ inferExp g (Let [Bind x _ [] e1] e2) = do
   let g'            = E.add (substGamma tee g) (x, generalise (substGamma tee g) tau)
   (e2', tau',tee') <- inferExp g' e2
   return (Let [Bind x (Just ((generalise g' tau))) [] e1'] e2', tau', tee' <> tee)
---                          ^^dropped the return
+--                          ^^dropped the return, made the types match properly!!!
 
 inferExp g _ = error "Implement me! (You missed some cases, duh!)"
 
