@@ -78,6 +78,7 @@ infer program = do (p',tau, s) <- runTC $ inferProgram initialGamma program
                    return p'
 
 unquantify :: QType -> TC Type
+
 {-
 Normally this implementation would be possible:
 
@@ -118,7 +119,7 @@ unify (Base c1) (Base c2)             = if c1   == c2
                                            else typeError (TypeMismatch (Base c1) (Base c2))
 
 -- Then the case of sum types which requires a multi-stage
--- unification process (separately unifying both parts of the sum)
+-- unification process (first unifying the first sum elements etc...)
 unify (Sum t11 t12) (Sum t21 t22)   = do s1 <- (unify           t11             t21)
                                          s2 <- (unify (substitute s1 t12) (substitute s1 t22))
                                          return (s1 <> s2)
@@ -128,7 +129,7 @@ unify (Prod t11 t12) (Prod t21 t22)   = do s1 <- (unify           t11           
                                            s2 <- (unify (substitute s1 t12) (substitute s1 t22))
                                            return (s1 <> s2)
 
--- And again for function types:
+-- And repeat it again for function types:
 unify (Arrow t11 t12) (Arrow t21 t22)   = do s1 <- (unify           t11             t21)
                                              s2 <- (unify (substitute s1 t12) (substitute s1 t22))
                                              return (s1 <> s2)
@@ -145,7 +146,7 @@ unify (TypeVar var) t    = if var `elem` (tv t)
                               then typeError (OccursCheckFailed var t)
                               else return (var =: t)
 
---If none of these cases work then we cannot unify the two types:
+--If none of these cases work then we probably cannot unify the two types:
 unify t1 t2 = typeError (TypeMismatch t1 t2)
 
 
@@ -159,7 +160,9 @@ unify t1 t2 = typeError (TypeMismatch t1 t2)
 -- Generalise(Γ,τ)  =∀(TV(τ)\TV(Γ)). τ
 -- Basically saying that we want to add foralls
 -- to the type variables that are not mentioned in gamma
--- This can be implemented as:
+-- This can be implemented by getting the typevariables in tau
+-- removing all the elements that appear in gamma and then adding
+-- the foralls:
 generalise :: Gamma -> Type -> QType
 generalise g tau = foldl (\tau' x -> Forall x tau') (Ty tau) iter
                          where iter = reverse (filter (\y -> not (y `elem` (tvGamma g))) (tv tau))
@@ -172,7 +175,9 @@ generalise g tau = foldl (\tau' x -> Forall x tau') (Ty tau) iter
 
 
 
--- We now implement infer program
+-- We now implement infer program from which we call inferExp
+-- and then we definitely do not forget to run allTypes over
+-- the returned expression with the returned substitution!
 inferProgram :: Gamma -> Program -> TC (Program, Type, Subst)
 inferProgram g [Bind str _ [] e] = do
   (e', tau, tee) <- inferExp g e
@@ -183,11 +188,10 @@ inferProgram _ _ = error "Somehow you couldn't pattern match inferProgram"
 
 
 
-
+-- So we now get to adding all of the inference rules listed in the assignment.
 inferExp :: Gamma -> Exp -> TC (Exp, Type, Subst)
 
 
--- So we now get to adding all of the inference rules listed in the assignment.
 -- We begin with the simplest, a constant:
 inferExp g (Num n) = return (Num n, Base Int, emptySubst)
 
@@ -204,7 +208,6 @@ inferExp g (Prim o) = do unQt <- unquantify (primOpType o)
 
 
 -- Then handle the constructors which is very similar to the primops
--- except we need to include an error condition
 inferExp g (Con c) = case (constType c) of Just t -> do unQt <- unquantify t
                                                         return (Con c, unQt, emptySubst)
                                            _      -> typeError (NoSuchConstructor c)
@@ -223,7 +226,7 @@ inferExp g (App e1 e2) = do
 
 
 -- Next we handle If-Then-Else statements, which will have
--- a similar structure to the application:
+-- a similar structure to the application handling:
 inferExp g (If e e1 e2) = do
   (e', tau, tee)    <- inferExp g e
   u                 <- unify tau (Base Bool)
@@ -234,7 +237,8 @@ inferExp g (If e e1 e2) = do
   return (If e' e1' e2', substitute u' tau2, u' <> tee2 <> tee1 <> u <> tee)
 
 
--- Then we handle the only non-error-raising case statement:
+-- Then we handle the only non-error-raising case statement, for which
+-- we just follow the inference rule almost verbatim:
 inferExp g (Case e [Alt "Inl" [x] e1, Alt "Inr" [y] e2]) = do
   (e', tau, tee)    <- inferExp g e
   alphaL            <- fresh
@@ -251,15 +255,13 @@ inferExp g (Case e [Alt "Inl" [x] e1, Alt "Inr" [y] e2]) = do
       retSub         = u' <> u <> tee2 <> tee1 <> tee
   return (Case e' [Alt "Inl" [x] e1', Alt "Inr" [y] e2'], retTy, retSub)
 
+-- An error if something is wrong with either the right or left alternative
 inferExp g (Case e _) = typeError MalformedAlternatives  
 
--- Next up we need to handle the recfun statements:
--- I am not sure that I have made the substitutions correctly ============================
--- ============================= do we assume only a single argument x????????????????????
--- ============================== Should we also consider no argument?
--- How about different starting types?
-
-
+-- Next up we need to handle the recfun statements, we need to create
+-- fresh variable names for the function name and for the argument
+-- then we have to remember to return the correct type of type (QType)
+-- in the bind statement at the end
 inferExp g (Recfun (Bind f _ [x] e)) = do
   alpha1         <- fresh
   alpha2         <- fresh
@@ -270,29 +272,18 @@ inferExp g (Recfun (Bind f _ [x] e)) = do
   u              <- unify lhs rhs
   let retTy       = substitute u (Arrow (substitute tee alpha1) tau)
       retSub      = u <> tee
-  return (Recfun (Bind f (Just ((Ty retTy))) [x] e'),retTy, retSub)
+  return (Recfun (Bind f (Just (Ty retTy)) [x] e'),retTy, retSub)
 
-{-
-inferExp g (Recfun (Bind f _ [x] e)) = do
-  alpha1         <- fresh
-  alpha2         <- fresh
-  let g'          = E.addAll g [(x, Ty alpha1), (f, Ty alpha2)]
-  (e', tau, tee) <- inferExp g' e
-  let lhs         = substitute tee alpha2
-      rhs         = Arrow (substitute tee alpha1) tau
-  u              <- unify lhs rhs
-  let retTy       = substitute u (Arrow (substitute tee alpha1) tau)
-      retSub      = u <> tee
-  return (Recfun (Bind f (Just ((generalise g' retTy))) [x] e'),retTy, retSub)
---                             ^^dropped the return here, made the types match properly!
--}
--- Finally we handle let expressions:
+
+-- Finally we handle let expressions which are similar to recfun,
+-- but we must remember to generalise and to return the correct type
+-- in our final bind statement (tau not tau')
 inferExp g (Let [Bind x _ [] e1] e2) = do
   (e1', tau, tee)  <- inferExp g e1
   let g'            = E.add (substGamma tee g) (x, generalise (substGamma tee g) tau)
   (e2', tau',tee') <- inferExp g' e2
-  return (Let [Bind x (Just ((generalise g' tau))) [] e1'] e2', tau', tee' <> tee)
---                          ^^dropped the return, made the types match properly!!!
+  return (Let [Bind x (Just (generalise g' tau)) [] e1'] e2', tau', tee' <> tee)
+
 
 inferExp g _ = error "Implement me! (You missed some cases, duh!)"
 
